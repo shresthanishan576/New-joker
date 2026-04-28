@@ -1,197 +1,139 @@
+/**
+ * audio.js — Web Audio API synthesizer for Joker game
+ * No external files required; all sounds generated procedurally.
+ */
 (function() {
     "use strict";
 
-    const SUITS = ["S", "H", "D", "C"], VALS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-    const SYM = { S: "♠", H: "♥", D: "♦", C: "♣" }, RED = { H: true, D: true }, JOKER = "JOKER";
-    const NAMES = ["You", "CPU 2", "CPU 4", "CPU 3"];
-    
-    let players = [], current = 0, offering = -1, active = false, timer = null;
-    let bank = parseInt(localStorage.getItem('jokerBank')) || 1000;
-    let streak = 0;
+    let ctx = null;
+    let enabled = true;
 
-    const elBank = document.getElementById("bank-val");
-    const elStreak = document.getElementById("streak-val");
-    const btnStart = document.getElementById("btnStart");
-    const elOverlay = document.getElementById("overlay");
-    const elStatus = document.getElementById("status");
-
-    function updateEco() {
-        elBank.textContent = bank;
-        elStreak.textContent = streak;
-        localStorage.setItem('jokerBank', bank);
-    }
-    updateEco();
-
-    function buildDeck() {
-        let d = [];
-        SUITS.forEach(s => VALS.forEach(v => d.push(v + s)));
-        let q = d.indexOf("QS"); if (q !== -1) d.splice(q, 1);
-        d.push(JOKER);
-        return d.sort(() => Math.random() - 0.5);
+    function getCtx() {
+        if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+        return ctx;
     }
 
-    function deal(deck) {
-        players = [[], [], [], []];
-        deck.forEach((c, i) => players[i % 4].push(c));
+    function resume() {
+        const c = getCtx();
+        if (c.state === 'suspended') c.resume();
+        return c;
     }
 
-    // FIXED: Safe pair removal to prevent freezing
-    function removePairs(hand) {
-        const counts = {};
-        hand.forEach(c => {
-            if (c !== JOKER) {
-                const rank = c.slice(0, -1);
-                counts[rank] = (counts[rank] || 0) + 1;
+    // ---- Utility ----
+    function playTone(freq, type, duration, gain, delay = 0, fadeOut = true) {
+        if (!enabled) return;
+        const c = resume();
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, c.currentTime + delay);
+        g.gain.setValueAtTime(0, c.currentTime + delay);
+        g.gain.linearRampToValueAtTime(gain, c.currentTime + delay + 0.01);
+        if (fadeOut) g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + delay + duration);
+        osc.connect(g); g.connect(c.destination);
+        osc.start(c.currentTime + delay);
+        osc.stop(c.currentTime + delay + duration + 0.02);
+    }
+
+    function playNoise(duration, filterFreq, gain, delay = 0) {
+        if (!enabled) return;
+        const c = resume();
+        const bufSize = c.sampleRate * duration;
+        const buf = c.createBuffer(1, bufSize, c.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        const filter = c.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = filterFreq;
+        filter.Q.value = 0.5;
+        const g = c.createGain();
+        g.gain.setValueAtTime(gain, c.currentTime + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + delay + duration);
+        src.connect(filter); filter.connect(g); g.connect(c.destination);
+        src.start(c.currentTime + delay);
+        src.stop(c.currentTime + delay + duration + 0.01);
+    }
+
+    // ---- Sound Effects ----
+
+    window.SFX = {
+        toggle() { enabled = !enabled; return enabled; },
+        isEnabled() { return enabled; },
+
+        cardDeal() {
+            // Soft paper swoosh
+            playNoise(0.12, 1200, 0.15);
+            playTone(900, 'sine', 0.08, 0.05, 0.01);
+        },
+
+        cardPick() {
+            // Crisp pick
+            playNoise(0.08, 2000, 0.2);
+            playTone(1400, 'triangle', 0.1, 0.08, 0.02);
+        },
+
+        pairRemove() {
+            // Positive chime
+            [523, 659, 784].forEach((f, i) => playTone(f, 'sine', 0.25, 0.12, i * 0.07));
+        },
+
+        jokerPicked() {
+            // Dramatic bass impact + rising alarm
+            playTone(80, 'sawtooth', 0.4, 0.25);
+            playTone(40, 'sine', 0.5, 0.2, 0.05);
+            playTone(200, 'square', 0.3, 0.1, 0.15);
+            playTone(400, 'sine', 0.2, 0.08, 0.35);
+        },
+
+        win() {
+            // Triumphant fanfare
+            const notes = [523, 659, 784, 1047];
+            notes.forEach((f, i) => {
+                playTone(f, 'sine', 0.5, 0.18, i * 0.12);
+                playTone(f * 2, 'sine', 0.3, 0.06, i * 0.12 + 0.03);
+            });
+            // Coin jingle
+            for (let i = 0; i < 6; i++) {
+                playTone(1800 + Math.random() * 400, 'sine', 0.15, 0.1, 0.5 + i * 0.08);
             }
-        });
-        
-        // Find the first rank that has 2 or more cards
-        const pairRank = Object.keys(counts).find(rank => counts[rank] >= 2);
-        if (!pairRank) return hand;
+        },
 
-        let removedCount = 0;
-        return hand.filter(c => {
-            if (c !== JOKER && c.slice(0, -1) === pairRank && removedCount < 2) {
-                removedCount++;
-                return false;
+        lose() {
+            // Descending wail
+            const c = resume();
+            if (!enabled) return;
+            const osc = c.createOscillator();
+            const g = c.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(600, c.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(80, c.currentTime + 0.7);
+            g.gain.setValueAtTime(0.2, c.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.8);
+            osc.connect(g); g.connect(c.destination);
+            osc.start(); osc.stop(c.currentTime + 0.85);
+        },
+
+        shuffle() {
+            // Rapid card riffles
+            for (let i = 0; i < 8; i++) {
+                playNoise(0.04, 800 + Math.random() * 800, 0.12, i * 0.06);
             }
-            return true;
-        });
-    }
+        },
 
-    function mkCard(code, isBack) {
-        const d = document.createElement("div");
-        d.className = "card";
-        if (isBack) {
-            d.classList.add("back");
-            return d;
+        coin() {
+            playTone(2093, 'sine', 0.2, 0.15);
+            playTone(2637, 'sine', 0.15, 0.1, 0.05);
+        },
+
+        peek() {
+            playTone(1760, 'sine', 0.15, 0.1);
+            playTone(2093, 'sine', 0.15, 0.08, 0.1);
+        },
+
+        tick() {
+            playTone(600, 'triangle', 0.05, 0.06);
         }
-        if (code === JOKER) {
-            d.classList.add("joker"); d.textContent = "🃏";
-            return d;
-        }
-        const s = code.slice(-1), v = code.slice(0, -1);
-        d.classList.add(RED[s] ? "red" : "black");
-        d.innerHTML = `<span class="top">${v}<br>${SYM[s]}</span><span class="mid">${SYM[s]}</span><span class="bot">${v}<br>${SYM[s]}</span>`;
-        return d;
-    }
-
-    function layoutHand(pi) {
-        const box = document.getElementById("hand-" + pi);
-        box.innerHTML = "";
-        const hand = players[pi];
-        const isHuman = (pi === 0);
-
-        hand.forEach((code, i) => {
-            const isPickable = (active && current === 0 && pi === offering);
-            const cardEl = mkCard(code, !isHuman);
-            if (isPickable) cardEl.classList.add("pickable");
-
-            // positioning logic
-            if (pi === 0 || pi === 1) {
-                cardEl.style.left = (i * 20) + "px";
-                cardEl.style.transform = `rotate(${(i - hand.length / 2) * 2}deg)`;
-            } else {
-                cardEl.style.top = (i * 20) + "px";
-            }
-
-            if (isPickable) cardEl.onclick = () => pickCard(pi, i);
-            box.appendChild(cardEl);
-        });
-        document.getElementById("lcnt-" + pi).textContent = `(${hand.length})`;
-    }
-
-    function pickCard(fromPi, cardIdx) {
-        if(!active) return;
-        
-        const card = players[fromPi].splice(cardIdx, 1)[0];
-        players[current].push(card);
-        players[current] = removePairs(players[current]);
-        
-        elStatus.textContent = `Picked ${card === JOKER ? '🃏 JOKER!' : card}`;
-        
-        for (let i = 0; i < 4; i++) layoutHand(i);
-        
-        // Turn advancement
-        current = (current + 1) % 4;
-        while (players[current].length === 0 && players.some(h => h.length > 0)) {
-            current = (current + 1) % 4;
-        }
-        
-        offering = (current + 1) % 4;
-        while (players[offering].length === 0 && players.some(h => h.length > 0)) {
-            offering = (offering + 1) % 4;
-        }
-
-        updateTurn();
-    }
-
-    function updateTurn() {
-        for (let i = 0; i < 4; i++) {
-            document.getElementById("lbl-" + i).classList.toggle("active-seat", i === current);
-            layoutHand(i);
-        }
-
-        if (players.filter(h => h.length > 0).length === 1) {
-            endGame();
-            return;
-        }
-
-        if (current !== 0) {
-            elStatus.textContent = NAMES[current] + " is thinking...";
-            timer = setTimeout(cpuMove, 1500);
-        } else {
-            elStatus.textContent = "Your turn! Pick a card from " + NAMES[offering];
-        }
-    }
-
-    function cpuMove() {
-        if (!active) return;
-        const hand = players[offering];
-        if (hand.length === 0) return;
-        const idx = Math.floor(Math.random() * hand.length);
-        pickCard(offering, idx);
-    }
-
-    function endGame() {
-        active = false;
-        let winner = players.findIndex(h => h.length > 0);
-        const won = (winner === 0);
-        
-        if(won) {
-            bank += 400; streak++;
-            document.getElementById("ovTitle").textContent = "🎉 YOU WIN!";
-            document.getElementById("ovMsg").textContent = "You held the Joker last!";
-        } else {
-            streak = 0;
-            document.getElementById("ovTitle").textContent = "😅 YOU LOST";
-            document.getElementById("ovMsg").textContent = NAMES[winner] + " won the pot!";
-        }
-        
-        updateEco();
-        elOverlay.classList.add("show");
-    }
-
-    function startGame() {
-        if (bank < 100) { alert("Not enough coins!"); return; }
-        bank -= 100; updateEco();
-        elOverlay.classList.remove("show");
-        active = true;
-        
-        const deck = buildDeck();
-        deal(deck);
-        for (let i = 0; i < 4; i++) players[i] = removePairs(players[i]);
-        
-        current = 0;
-        offering = 1;
-        updateTurn();
-    }
-
-    btnStart.onclick = startGame;
-
-    document.getElementById("btnPeek").onclick = () => {
-        if (!active || current !== 0) return;
-        alert("You peeked! The opponents are now suspicious.");
     };
-
 })();
