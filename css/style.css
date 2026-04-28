@@ -378,16 +378,21 @@ body, html {
 /* ========== OVERLAY ========== */
 #overlay {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.92);
-    z-index: 100;
+    background: rgba(0,0,0,0.93);
+    z-index: 9999;
     display: none;
     flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px;
+    overflow-y: auto;
+    color: white;
 }
 #overlay.show { display: flex; }
 
 #overlay-inner {
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 24px;
+    align-items: center; justify-content: center; gap: 20px;
+    width: 100%; max-width: 420px;
+    padding: 20px 0;
     animation: overlayIn 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 @keyframes overlayIn {
@@ -396,56 +401,62 @@ body, html {
 }
 
 #overlay h2 {
-    font-family: 'Cinzel', serif; font-size: 2.8rem;
+    font-family: 'Cinzel', serif; font-size: 2.4rem;
     color: var(--gold-bright);
     text-shadow: 0 0 30px rgba(230,204,138,0.5);
     letter-spacing: 4px;
+    text-align: center;
 }
 
 #overlay p {
-    color: rgba(255,255,255,0.8); text-align: center;
+    color: rgba(255,255,255,0.85); text-align: center;
     font-size: 1rem; line-height: 1.7; max-width: 320px;
 }
 
 .joker-text { color: var(--joker-glow); font-weight: 700; }
 
 /* Bet section */
-#bet-section { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+#bet-section { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 #bet-label {
     font-family: 'Cinzel', serif; font-size: 0.65rem;
     color: var(--gold-dim); letter-spacing: 3px;
 }
-#bet-btns { display: flex; gap: 10px; }
+#bet-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 
 .bet-btn {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.07);
     border: 1px solid var(--gold-dim);
-    color: var(--gold-dim);
+    color: var(--gold-muted);
     font-family: 'Cinzel', serif; font-size: 0.7rem;
     padding: 8px 18px; border-radius: 6px;
     cursor: pointer; transition: 0.2s;
 }
 .bet-btn:hover, .bet-btn.active {
-    background: rgba(197,160,89,0.2);
+    background: rgba(197,160,89,0.25);
     border-color: var(--gold-bright);
     color: var(--gold-bright);
     box-shadow: 0 0 14px rgba(197,160,89,0.3);
 }
+.bet-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* Deal button */
 .ovBtn {
-    padding: 14px 40px;
-    background: linear-gradient(135deg, var(--gold-muted), #a07830);
-    border: none; border-radius: 6px;
+    padding: 14px 44px;
+    background: linear-gradient(135deg, #d4a84b, #a07830);
+    border: 2px solid var(--gold-bright);
+    border-radius: 8px;
     font-family: 'Cinzel', serif; font-weight: 700;
     font-size: 1rem; letter-spacing: 2px;
     cursor: pointer; color: #1a0e00;
-    box-shadow: 0 4px 20px rgba(197,160,89,0.4);
+    box-shadow: 0 4px 24px rgba(197,160,89,0.5);
     transition: transform 0.2s, box-shadow 0.2s;
+    display: block;
+    min-width: 200px;
+    text-align: center;
 }
 .ovBtn:hover {
-    transform: translateY(-3px) scale(1.03);
-    box-shadow: 0 8px 30px rgba(197,160,89,0.6);
+    transform: translateY(-3px) scale(1.04);
+    box-shadow: 0 10px 36px rgba(197,160,89,0.7);
 }
 .ovBtn:active { transform: scale(0.97); }
 
